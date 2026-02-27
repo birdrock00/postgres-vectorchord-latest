@@ -34,38 +34,46 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Note: We removed the 'Find latest vchord-postgres tag' step
-      # because we are no longer copying from that image.
+      # Step 1: Identify the Postgres version in the official 'latest' image
+      - name: Get Postgres Major Version
+        id: pg_version
+        run: |
+          # Pull the latest image to inspect its environment variables
+          docker pull postgres:latest
+          # Extract PG_MAJOR (e.g., 17)
+          PG_MAJOR=$(docker run --rm postgres:latest printenv PG_MAJOR)
+          echo "PG_MAJOR=$PG_MAJOR" >> $GITHUB_OUTPUT
 
-      - name: Find and Download latest VectorChord .deb
+      # Step 2: Download VectorChord matching the Postgres version
+      - name: Find and Download matching VectorChord .deb
         id: get_deb
+        env:
+          PG_MAJOR: ${{ steps.pg_version.outputs.PG_MAJOR }}
         run: |
           # Get the latest release JSON
           RELEASE_DATA=$(curl -sL "https://api.github.com/repos/tensorchord/VectorChord/releases/latest")
           
-          # Parse assets: find .deb for amd64, sort by PG version descending, pick top
-          DEB_URL=$(echo "$RELEASE_DATA" | jq -r '
+          # Parse assets: find .deb for amd64 matching the detected PG_MAJOR version
+          DEB_URL=$(echo "$RELEASE_DATA" | jq -r --argjson pg_ver "$PG_MAJOR" '
             .assets 
             | map(select(.name | endswith(".deb") and contains("amd64"))) 
             | map({name: .name, url: .browser_download_url, pg_ver: (.name | capture("postgresql-(?<ver>[0-9]+)-vchord") | .ver | tonumber)}) 
-            | sort_by(.pg_ver) 
-            | reverse 
+            | map(select(.pg_ver == $pg_ver))
             | .[0] 
             | .url
           ')
           
-          DEB_NAME=$(echo "$RELEASE_DATA" | jq -r '
+          DEB_NAME=$(echo "$RELEASE_DATA" | jq -r --argjson pg_ver "$PG_MAJOR" '
             .assets 
             | map(select(.name | endswith(".deb") and contains("amd64"))) 
             | map({name: .name, pg_ver: (.name | capture("postgresql-(?<ver>[0-9]+)-vchord") | .ver | tonumber)}) 
-            | sort_by(.pg_ver) 
-            | reverse 
+            | map(select(.pg_ver == $pg_ver))
             | .[0] 
             | .name
           ')
           
           if [ -z "$DEB_URL" ] || [ "$DEB_URL" = "null" ]; then
-            echo "Error: Could not find a suitable .deb file"
+            echo "Error: Could not find a suitable .deb file for Postgres version $PG_MAJOR"
             exit 1
           fi
           
