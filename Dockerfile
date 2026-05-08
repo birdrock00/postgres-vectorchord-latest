@@ -14,5 +14,7 @@ RUN apt-get update && \
     apt-get install -y postgresql-${PG_MAJOR}-pgvector postgresql-${PG_MAJOR}-postgis-3 /tmp/${DEB_FILENAME} && \
     rm -rf /tmp/${DEB_FILENAME} /var/lib/apt/lists/*
 
+COPY docker-entrypoint-initdb.d/10-enable-postgis.sh /docker-entrypoint-initdb.d/10-enable-postgis.sh
+
 # Set the startup command
 CMD ["postgres", "-c" ,"shared_preload_libraries=vchord,vector"]
