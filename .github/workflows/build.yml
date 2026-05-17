@@ -34,6 +34,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set release date tag
+        id: release-date
+        run: echo "tag=$(date -u +'%m-%d-%Y')" >> "$GITHUB_OUTPUT"
+
       # Step 1: Identify the Postgres version in the official 'latest' image
       - name: Get Postgres Major Version
         id: pg_version
@@ -87,6 +91,8 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.release-date.outputs.tag }}
           build-args: |
             DEB_FILENAME=${{ env.DEB_FILENAME }}
