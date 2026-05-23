@@ -14,7 +14,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -96,3 +96,14 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.release-date.outputs.tag }}
           build-args: |
             DEB_FILENAME=${{ env.DEB_FILENAME }}
+
+      - name: Create release for daily image
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: image-${{ steps.release-date.outputs.tag }}-${{ github.run_id }}
+          name: Container image ${{ steps.release-date.outputs.tag }}
+          body: |
+            Container image for ${{ steps.release-date.outputs.tag }}:
+
+            `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.release-date.outputs.tag }}`
+          make_latest: true
