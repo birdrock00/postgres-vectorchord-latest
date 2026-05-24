@@ -1,9 +1,8 @@
 name: Build and Push Latest VectorChord
 
 on:
-  schedule:
-    # Run every Friday at 10:00 PM UTC
-    - cron: '0 22 * * 5'
+  # This build resolves mutable upstream images/releases. Run it only after
+  # reviewing those changes and allowing an appropriate cooldown.
   workflow_dispatch:
 
 env:
