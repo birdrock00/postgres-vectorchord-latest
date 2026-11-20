@@ -37,18 +37,24 @@ jobs:
         id: release-date
         run: echo "tag=$(date -u +'%m-%d-%Y')" >> "$GITHUB_OUTPUT"
 
-      # Step 1: Identify the Postgres version in the official 'latest' image
+      # Step 1: Identify the Postgres version in the official postgres:19 image
       - name: Get Postgres Major Version
         id: pg_version
         run: |
-          # Pull the latest image to inspect its environment variables
-          docker pull postgres:latest
-          # Extract PG_MAJOR (e.g., 17)
-          PG_MAJOR=$(docker run --rm postgres:latest printenv PG_MAJOR)
+          # Pull the postgres:19 image (floating = latest 19.x) to inspect it
+          docker pull postgres:19
+          # Extract PG_MAJOR (e.g., 19)
+          PG_MAJOR=$(docker run --rm postgres:19 printenv PG_MAJOR)
           echo "PG_MAJOR=$PG_MAJOR" >> $GITHUB_OUTPUT
 
-      # Step 2: Download VectorChord matching the Postgres version
-      - name: Find and Download matching VectorChord .deb
+      # Step 2: Find a VectorChord .deb matching the Postgres version.
+      # tensorchord only publishes debs for the PG majors it has released for;
+      # when none exists for $PG_MAJOR (true for PG19 as of PG19's release),
+      # the build continues with the vchord-less variant instead of failing:
+      # VCHORD_DEB_URL stays empty and VCHORD_PRELOAD=vector. Re-run this
+      # workflow once a VectorChord release ships a pg${PG_MAJOR} .deb and the
+      # same Dockerfile then produces the full vchord+vector image.
+      - name: Find matching VectorChord .deb
         id: get_deb
         env:
           PG_MAJOR: ${{ steps.pg_version.outputs.PG_MAJOR }}
@@ -61,7 +67,7 @@ jobs:
             .assets 
             | map(select(.name | endswith(".deb") and contains("amd64"))) 
             | map({name: .name, url: .browser_download_url, pg_ver: (.name | capture("postgresql-(?<ver>[0-9]+)-vchord") | .ver | tonumber)}) 
-            | map(select(.pg_ver == $pg_ver))
+            | map(select(.pg_ver == $pg_ver)) 
             | .[0] 
             | .url
           ')
@@ -70,20 +76,24 @@ jobs:
             .assets 
             | map(select(.name | endswith(".deb") and contains("amd64"))) 
             | map({name: .name, pg_ver: (.name | capture("postgresql-(?<ver>[0-9]+)-vchord") | .ver | tonumber)}) 
-            | map(select(.pg_ver == $pg_ver))
+            | map(select(.pg_ver == $pg_ver)) 
             | .[0] 
             | .name
           ')
           
           if [ -z "$DEB_URL" ] || [ "$DEB_URL" = "null" ]; then
-            echo "Error: Could not find a suitable .deb file for Postgres version $PG_MAJOR"
-            exit 1
+            echo "WARNING: no VectorChord .deb for Postgres $PG_MAJOR yet (latest release ships pg14-pg18 only)."
+            echo "Building the vchord-less variant (shared_preload_libraries=vector)."
+            echo "Re-run this workflow after tensorchord publishes a pg$PG_MAJOR vchord .deb."
+            echo "VCHORD_DEB_URL=" >> $GITHUB_ENV
+            echo "VCHORD_DEB_NAME=" >> $GITHUB_ENV
+            echo "VCHORD_PRELOAD=vector" >> $GITHUB_ENV
+          else
+            echo "Found VectorChord .deb: $DEB_NAME"
+            echo "VCHORD_DEB_URL=$DEB_URL" >> $GITHUB_ENV
+            echo "VCHORD_DEB_NAME=$DEB_NAME" >> $GITHUB_ENV
+            echo "VCHORD_PRELOAD=vchord,vector" >> $GITHUB_ENV
           fi
-          
-          echo "Downloading: $DEB_NAME"
-          curl -sL "$DEB_URL" -o "$DEB_NAME"
-          
-          echo "DEB_FILENAME=$DEB_NAME" >> $GITHUB_ENV
 
       - name: Build and push Docker image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
@@ -94,7 +104,9 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.release-date.outputs.tag }}
           build-args: |
-            DEB_FILENAME=${{ env.DEB_FILENAME }}
+            VCHORD_DEB_URL=${{ env.VCHORD_DEB_URL }}
+            VCHORD_DEB_NAME=${{ env.VCHORD_DEB_NAME }}
+            VCHORD_PRELOAD=${{ env.VCHORD_PRELOAD }}
 
       - name: Create release for daily image
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
